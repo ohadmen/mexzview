@@ -2,7 +2,7 @@
 Matlab interface for zview
 
 ## Installation
-* install zview
+* install zview https://github.com/ohadmen/zview/releases/latest
 * run ``` compile_mexzview(ZVIEW_INSTALL_DIR)```
 
 
