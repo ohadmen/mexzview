@@ -192,7 +192,7 @@ void func_addColoredEdges(int nlhs, mxArray *plhs[], int nrhs, const mxArray *pr
     ZviewInf *zv = ZviewInfWrapper::getFromMxarray(prhs[1])->getZviewPtr();
     std::string name = getString(prhs, 2);
     auto [ptsdata, npts] = getMatrixFromMxarray<float, 4>(prhs, 3);
-    auto [edgesdata, nedges] = getMatrixFromMxarray<int, 3>(prhs, 4);
+    auto [edgesdata, nedges] = getMatrixFromMxarray<int, 2>(prhs, 4);
 
     int64_t key = zv->addColoredEdges(name.c_str(), npts, ptsdata, nedges, edgesdata);
     setScalarOutput(key, plhs[0]);

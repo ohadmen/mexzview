@@ -10,11 +10,15 @@ classdef Mexzview < handle
     methods (Access=private)
         function tri=getTrimeshIndices(~,sz)
             indx = reshape(0:sz(1)*sz(2)-1,sz(1:2));
+            p1=indx(1:end-1,1:end-1);
+            p2=indx(1:end-1,2:end);
+            p3=indx(2:end,1:end-1);
+            p4=indx(2:end,2:end);
+            tri_a = reshape(cat(3,p4,p1,p2),[],3);
+            tri_b = reshape(cat(3,p4,p3,p1),[],3);
+            tri = reshape([tri_a tri_b]',3,[]);
             
-            tri_a = reshape(cat(3,indx(1:end-1,2:end),indx(1:end-1,1:end-1),indx(2:end,2:end)),[],3);
-            tri_b = reshape(cat(3,indx(1:end-1,1:end-1),indx(2:end,1:end-1),indx(2:end,2:end)),[],3);
-            tri = [tri_a;tri_b];
-            tri = int32(tri)';
+            tri = int32(tri);
             
         end
         
@@ -32,7 +36,69 @@ classdef Mexzview < handle
             end
         end
         
-        function xyzf=get_pts_arr(obj,xyz, color, alpha)
+        function tform = getTform(obj, tform_or_trs)
+            
+            if ismatrix(tform_or_trs) && all(size(tform_or_trs)==[4,4])
+                tform = tform_or_trs;
+            elseif ismatrix(tform_or_trs) && all(size(tform_or_trs)==[3,4])
+                tform = eye(4);
+                tform(1:3, :) = tform_or_trs;
+            elseif iscell(tform_or_trs)
+                [t, r, s] = tform_or_trs{:};
+                
+                tform = eye(4);
+                if isnan(r)
+                elseif all(size(r)==[3,3])
+                    tform(1:3,1:3) = r;
+                elseif numel(r)==3
+                    tform(1:3,1:3) = obj.rotationMatrix(r);
+                else
+                    error("unknown rotation strucutre")
+                end
+                sv = eye(4);
+                if isnan(s)
+                    
+                elseif length(s)==1
+                    sv(1:3,1:3)=sv(1:3,1:3)*s;
+                elseif length(s)==3
+                    sv(1:3,1:3)=diag(s);
+                else
+                    error("unknown scale structure")
+                end
+                tform = tform * sv;
+                if isnan(t)
+                elseif length(t)==3
+                    tform(1:3,4)=t;
+                else
+                    error("unknown translation structure")
+                end
+            else
+                error("unknown transforation structure")
+            end
+        end
+        
+        
+        function namehandle=set_obj(obj, objtype, namehandle, tform_or_trs, color, alpha)
+            
+            tform = obj.getTform(tform_or_trs);
+            obj_cell= obj.objects(objtype);
+            xyz = tform(1:3, 1:3)*obj_cell{1}  + tform(1:3,4);
+            namehandle= obj.addTrimesh(namehandle,xyz,obj_cell{2},color,alpha);
+        end
+        function r=rotationMatrix(~,rot_vec)
+            angle = norm(rot_vec);
+            if angle == 0
+                r=eye(3);
+            else
+                v = rot_vec(:) / angle;
+                c = [0, -v(3), v(2);v(3), 0, -v(1);-v(2), v(1), 0];
+                r = eye(3) + c * sin(angle) + (1 - cos(angle)) * c * c;
+            end
+        end
+        
+        
+        
+        function xyzf=getPtsArr(obj,xyz, color, alpha)
             xyz = single(xyz);
             if length(size(xyz))==3
                 xyz = reshape(xyz,size(xyz,1),[]);
@@ -87,14 +153,22 @@ classdef Mexzview < handle
         end
         
         function obj = Mexzview()
-            obj.handle= zview_module('new');
+            
             s = 1 / sqrt(3);
-            objects = containers.Map;
-            objects('marker') = {[-1, -s, 0;0, 2 * s, 0;1, -s, 0;0, 0, sqrt(8) * s] / 2,[0, 3, 1;1, 3, 2;0, 2, 3;0, 2, 1]};
-            objects('rect') = {[0, 0, 0;0, 1, 0;1, 1, 0;1, 0, 0;0, 0, 1;0, 1, 1;1, 1, 1;1, 0, 1]* 2 - 1,...
-                [3, 1, 0;3, 1, 2;3, 6, 2;3, 7, 6;0, 1, 5;0, 5, 4;0, 7, 4;0, 3, 7;1, 2, 6;1, 6, 5;5, 6, 7;4, 5, 7]};
-            objects('camera') = {[0, 0, 0;1, 1, 1;-1, 1, 1;-1, -1, 1;1, -1, 1;1, 0, 0;1, 0.1, 0;0, 1, 0;0.1, 1, 0],...
-                [0, 1, 2;0, 2, 3;0, 3, 4;0, 4, 1;1, 2, 3;1, 3, 4;0, 6, 5;0, 7, 8]};
+            obj.objects = containers.Map;
+            obj.objects('marker') = {[-1, -s, 0;0, 2 * s, 0;1, -s, 0;0, 0, sqrt(8) * s]' / 2,[0, 3, 1;1, 3, 2;0, 2, 3;0, 2, 1]'};
+            obj.objects('rect') = {[0, 0, 0;0, 1, 0;1, 1, 0;1, 0, 0;0, 0, 1;0, 1, 1;1, 1, 1;1, 0, 1]'* 2 - 1,...
+                [3, 1, 0;3, 1, 2;3, 6, 2;3, 7, 6;0, 1, 5;0, 5, 4;0, 7, 4;0, 3, 7;1, 2, 6;1, 6, 5;5, 6, 7;4, 5, 7]'};
+            obj.objects('camera') = {[0, 0, 0;1, 1, 1;-1, 1, 1;-1, -1, 1;1, -1, 1;1, 0, 0;1, 0.1, 0;0, 1, 0;0.1, 1, 0]',...
+                [0, 1, 2;0, 2, 3;0, 3, 4;0, 4, 1;1, 2, 3;1, 3, 4;0, 6, 5;0, 7, 8]'};
+            for x=obj.objects.keys
+                cell_data=obj.objects(x{1});
+                cell_data{1}=single(cell_data{1});
+                cell_data{2}=int32(cell_data{2});
+                obj.objects(x{1})=cell_data;
+            end
+            
+            obj.handle= zview_module('new');
         end
         
         function removeShape(obj, namehandle)
@@ -107,7 +181,53 @@ classdef Mexzview < handle
             zview_module('removeShape',obj.handle,namehandle);
         end
         
+        
+        function handlenum =  addEdges(obj, namehandle, xyz, edgepair, color, alpha)
+            
+            if(~exist('alpha','var'))
+                alpha=nan;
+            end
+            if(~exist('color','var'))
+                color=nan;
+            end
+            if length(size(xyz)) ~= 2
+                error("expecting nxD for D>=3")
+            end
+            xyzf = obj.getPtsArr(xyz, color, alpha);
+            if isa(namehandle,'char')
+                handlenum = zview_module('getHandleNumFromString',obj.handle,namehandle);
+                if handlenum == -1
+                    
+                    handlenum = zview_module('addColoredEdges',obj.handle,namehandle, xyzf, edgepair);
+                else
+                    ok = zview_module('updateColoredPoints',obj.handle,handlenum, xyzf);
+                    if ~ok
+                        %#visualization data is stored in a vertex buffer. If you are tryig to update an array which is bigger than the vertex buffer, than we have a problem...
+                        error('could not update points with the different size. create a new set for new point size');
+                    end
+                end
+            elseif(isa(namehandle,'int64'))
+                zview_module('updateColoredPoints',obj.handle,namehandle, xyzf);
+            else
+                error('Bad handlenum argument')
+            end
+        end
         function handlenum = addPoints(obj, namehandle, xyz, color, alpha)
+            % % add points
+            % zv.addPoints('pcl/xyz',rand(3,1000));
+            % % add points with intensity
+            % zv.addPoints('pcl/xyz',rand(4,1000));
+            % % add points with rgb
+            % zv.addPoints('pcl/xyzrgb',rand(6,1000));
+            % % add points with rgba
+            % zv.addPoints('pcl/xyzrgba',rand(7,1000));
+            % % add points, force color
+            % zv.addPoints('pcl/xyzrgba',rand(7,1000),'r');
+            % % add points, forced color can be rgb
+            % zv.addPoints('pcl/xyzrgba',rand(7,1000),[1,.2,.3]);
+            % % forca alpha
+            % zv.addPoints('pcl/xyzrgba',rand(7,1000),nan,0.5);
+            
             if(~exist('alpha','var'))
                 alpha=nan;
             end
@@ -115,7 +235,7 @@ classdef Mexzview < handle
                 color=nan;
             end
             
-            xyzf = obj.get_pts_arr(xyz, color, alpha);
+            xyzf = obj.getPtsArr(xyz, color, alpha);
             if isa(namehandle,'char')
                 handlenum = zview_module('getHandleNumFromString',obj.handle,namehandle);
                 if handlenum == -1
@@ -135,7 +255,42 @@ classdef Mexzview < handle
             end
         end
         
+        function handlenum =  addTrimesh(obj, namehandle, xyz, faces, color, alpha)
+            
+            if(~exist('alpha','var'))
+                alpha=nan;
+            end
+            if(~exist('color','var'))
+                color=nan;
+            end
+            if length(size(xyz)) ~= 2
+                error("expecting nxD for D>=3")
+            end
+            xyzf = obj.getPtsArr(xyz, color, alpha);
+            if isa(namehandle,'char')
+                handlenum = zview_module('getHandleNumFromString',obj.handle,namehandle);
+                if handlenum == -1
+                    
+                    handlenum = zview_module('addColoredMesh',obj.handle,namehandle, xyzf, faces);
+                else
+                    ok = zview_module('updateColoredPoints',obj.handle,handlenum, xyzf);
+                    if ~ok
+                        %#visualization data is stored in a vertex buffer. If you are tryig to update an array which is bigger than the vertex buffer, than we have a problem...
+                        error('could not update points with the different size. create a new set for new point size');
+                    end
+                end
+            elseif(isa(namehandle,'int64'))
+                zview_module('updateColoredPoints',obj.handle,namehandle, xyzf);
+            else
+                error('Bad handlenum argument')
+            end
+        end
+        
         function handlenum = addMesh(obj, namehandle, xyz, color, alpha)
+            %             [yg,xg] = ndgrid(linspace(-1,1,64)*pi/2,linspace(-1,1,64)*pi);
+            % color=abs(sin(4*yg).*sin(4*xg).*sin(4*yg));
+            % zv.addMesh('mesh/xyz',cat(3,cos(yg).*cos(xg),cos(yg).*sin(xg),sin(yg),zv.applyColormap(@parula,color) ))
+            
             if(~exist('alpha','var'))
                 alpha=nan;
             end
@@ -145,7 +300,7 @@ classdef Mexzview < handle
             if length(size(xyz)) ~= 3
                 error("expecting nxmxD for D>=3")
             end
-            xyzf = obj.get_pts_arr(reshape(xyz,[],size(xyz,3))', color, alpha);
+            xyzf = obj.getPtsArr(reshape(xyz,[],size(xyz,3))', color, alpha);
             if isa(namehandle,'char')
                 handlenum = zview_module('getHandleNumFromString',obj.handle,namehandle);
                 if handlenum == -1
@@ -184,5 +339,55 @@ classdef Mexzview < handle
         function key=getLastKeyStroke(obj)
             key = zview_module('getLastKeyStroke',obj.handle);
         end
+        
+        function handlenum = addRectangle(obj, name, tform_or_trs, color, alpha)
+            if(~exist('alpha','var'))
+                alpha=nan;
+            end
+            if(~exist('color','var'))
+                color=nan;
+            end
+            handlenum = obj.set_obj('rect', name, tform_or_trs, color, alpha);
+        end
+        
+        
+        function handlenum =  addCamera(obj, namehandle, t, r, scale, k, color, alpha)
+            if(~exist('alpha','var'))
+                alpha=1;
+            end
+            if(~exist('color','var'))
+                color=[1,1,1];
+            end
+            if(~exist('scale','var'))
+                scale=1;
+            end
+            if(~exist('k','var'))
+                k=eye(3);
+            end
+            
+            tform = obj.getTform({t, r, nan});
+            cam_data =obj.objects('camera');
+            v = cam_data {1} * scale;
+            v(:,1:5) = k\v(:,1:5);
+            v = tform(1:3,1:3)*v  + tform(1:3, 4);
+            rgba = [obj.str2rgb(color) alpha]'*ones(1,size(v,2));
+            rgba(1:3,1)=[1,1,1];
+            rgba(1:3,6:7)=[1;0;0]*[1 1];
+            rgba(1:3,8:9)=[0;1;0]*[1 1];
+            handlenum = obj.addTrimesh(namehandle,[v;rgba],cam_data{2});
+        end
+        
+            function handlenum = addMarker(obj, name, tform_or_trs, color, alpha)
+            if(~exist('alpha','var'))
+                alpha=nan;
+            end
+            if(~exist('color','var'))
+                color=nan;
+            end
+            handlenum = obj.set_obj('marker', name, tform_or_trs, color, alpha);
+        end
+        
+        
+        
     end
 end
